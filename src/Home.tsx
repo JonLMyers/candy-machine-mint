@@ -41,6 +41,8 @@ const Home = (props: HomeProps) => {
   const [isActive, setIsActive] = useState(false); // true when countdown completes
   const [isSoldOut, setIsSoldOut] = useState(false); // true when items remaining is zero
   const [isMinting, setIsMinting] = useState(false); // true when user got to press MINT
+  const [counter, setCounter] = useState<any>({});
+  const [price, setPrice] = useState<number | null>(null);
 
   const [alertState, setAlertState] = useState<AlertState>({
     open: false,
@@ -53,35 +55,66 @@ const Home = (props: HomeProps) => {
   const wallet = useAnchorWallet();
   const [candyMachine, setCandyMachine] = useState<CandyMachine>();
 
-  const onMint = async () => {
+
+  const WalletCheck = (pubkey: string) => {
+    console.log(pubkey)
+    let data = {walletid:pubkey};
+    fetch("https://solspecterwalletapi.azurewebsites.net/api/walletcheck",
+    {
+      method: "POST",
+      body: JSON.stringify(data)
+    }).then(res =>{
+      console.log("Status: ", res);
+      if (res.status == 200){
+        onMint(true)
+      } else {
+        setAlertState({
+          open: true,
+          message: "This wallet currently does not have any remaining mints. Please try again on the official launch date or contact the devs in discord for help.",
+          severity: "error",
+        });
+      }
+    });
+  };
+
+  const onMint = async (authed:boolean) => {
     try {
       setIsMinting(true);
       if (wallet && candyMachine?.program) {
-        const mintTxId = await mintOneToken(
-          candyMachine,
-          props.config,
-          wallet.publicKey,
-          props.treasury
-        );
-
-        const status = await awaitTransactionSignatureConfirmation(
-          mintTxId,
-          props.txTimeout,
-          props.connection,
-          "singleGossip",
-          false
-        );
-
-        if (!status?.err) {
-          setAlertState({
-            open: true,
-            message: "Congratulations! Mint succeeded!",
-            severity: "success",
-          });
+        if (authed){
+          const mintTxId = await mintOneToken(
+            candyMachine,
+            props.config,
+            wallet.publicKey,
+            props.treasury
+          );
+  
+          const status = await awaitTransactionSignatureConfirmation(
+            mintTxId,
+            props.txTimeout,
+            props.connection,
+            "singleGossip",
+            false
+          );
+  
+          if (!status?.err) {
+            FinalizePurchase(String(wallet.publicKey))
+            setAlertState({
+              open: true,
+              message: "Congratulations! Mint succeeded!",
+              severity: "success",
+            });
+          } else {
+            setAlertState({
+              open: true,
+              message: "Mint failed! Please try again!",
+              severity: "error",
+            });
+          }
         } else {
           setAlertState({
             open: true,
-            message: "Mint failed! Please try again!",
+            message: "This wallet currently does not have any remaining mints. Please try again on the official launch date, or contact the devs in discord for help.",
             severity: "error",
           });
         }
@@ -132,7 +165,7 @@ const Home = (props: HomeProps) => {
     (async () => {
       if (!wallet) return;
 
-      const { candyMachine, goLiveDate, itemsRemaining } =
+      const { candyMachine, goLiveDate, itemsRemaining, itemsAvailable, price } =
         await getCandyMachineState(
           wallet as anchor.Wallet,
           props.candyMachineId,
@@ -142,6 +175,11 @@ const Home = (props: HomeProps) => {
       setIsSoldOut(itemsRemaining === 0);
       setStartDate(goLiveDate);
       setCandyMachine(candyMachine);
+      setCounter({
+        itemsRemaining,
+        itemsAvailable
+      });
+      setPrice(price)
     })();
   }, [wallet, props.candyMachineId, props.connection]);
 
@@ -155,13 +193,23 @@ const Home = (props: HomeProps) => {
         <p>Balance: {(balance || 0).toLocaleString()} SOL</p>
       )}
 
+      {!!counter && (
+        <>
+          Items available: {counter.itemsRemaining} / {counter.itemsAvailable}
+          <br />
+          <br />
+          <br />
+          <br />
+        </>
+      )}
+
       <MintContainer>
         {!wallet ? (
           <ConnectButton>Connect Wallet</ConnectButton>
         ) : (
           <MintButton
             disabled={isSoldOut || isMinting || !isActive}
-            onClick={onMint}
+            onClick={() => {WalletCheck(String(wallet.publicKey))}}
             variant="contained"
           >
             {isSoldOut ? (
@@ -170,7 +218,7 @@ const Home = (props: HomeProps) => {
               isMinting ? (
                 <CircularProgress />
               ) : (
-                "MINT"
+                `MINT FOR ${price} SOL ⛏`
               )
             ) : (
               <Countdown
@@ -212,6 +260,19 @@ const renderCounter = ({ days, hours, minutes, seconds, completed }: any) => {
       {hours} hours, {minutes} minutes, {seconds} seconds
     </CounterText>
   );
+};
+
+function FinalizePurchase(pubkey: string) {
+  let data = {walletid:pubkey};
+  fetch("https://solspecterwalletapi.azurewebsites.net/api/purchasecomplete",
+  {
+    method: "POST",
+    body: JSON.stringify(data)
+  }).then(res =>{
+    console.log("Reciept: ", res);
+    return true
+  });
+  return false
 };
 
 export default Home;

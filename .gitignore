@@ -24,3 +24,11 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# Images for the project
+/specters
+.cache
+deployment_test.json
+
+#How we do things
+specterops
